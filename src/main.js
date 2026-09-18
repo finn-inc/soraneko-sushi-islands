@@ -76,7 +76,13 @@ const player = {
   bounce: new THREE.Vector3(), bounceCool: 0,
 };
 const game = { sinceStart: 0, state: 'title', dayT: TITLE_T, score: 0, combo: 0, maxCombo: 0, time: 0, endTimer: 0, flights: 0, hintTimer: 0 };
-const input = { rx: 0, ry: 0, down: false, px: window.innerWidth / 2, py: window.innerHeight / 2 };
+const input = {
+  rx: 0, ry: 0, px: window.innerWidth / 2, py: window.innerHeight / 2,
+  touch: false,                 // タッチ端末モード（文言・加速ボタン・スティック表示を切り替える）
+  steerId: null, ax: 0, ay: 0, stick: false, // 操舵している指と、指を置いた位置
+  mouseDown: false, btnDown: false, fingers: new Set(), // 加速: 左ボタン / 右下ボタン / 2本目以降の指
+};
+const boosting = () => input.mouseDown || input.btnDown || input.fingers.size > 0;
 const cam = { yaw: player.yaw, pitch: 0, pos: new THREE.Vector3(), blend: 1, side: 0, shake: 0, fovKick: 0, inited: false };
 let hitStop = 0, splashAcc = 0, petalAcc = 0, steamAcc = 0, splashLevel = 0, autoBoostT = 0;
 const errors = [];
@@ -87,24 +93,71 @@ window.addEventListener('error', (e) => errors.push(String(e.message)));
 const fwd = new THREE.Vector3(), prevPos = new THREE.Vector3(), _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _c = new THREE.Vector3();
 const _look = new THREE.Vector3(), _tp = new THREE.Vector3(), _tl = new THREE.Vector3();
 
-// ---- 入力（マウスだけ） ----
+// ---- 入力 ----
+// マウス: 画面中心からのカーソル位置が進みたい方向、左ボタン長押しで加速
+// タッチ: 指を置いた位置からのドラッグ量が進みたい方向（離すと直進）、2本目の指か右下のボタンで加速
+const STICK_R = 0.28; // タッチの最大舵角に達するドラッグ量（画面短辺に対する比）。親指の可動域に収める
+const isTouchLike = (e) => e.pointerType !== 'mouse';
+function setTouchMode(on) {
+  if (input.touch === on) return;
+  input.touch = on;
+  document.body.classList.toggle('touch', on);
+  if (!on) { input.steerId = null; input.stick = false; input.fingers.clear(); }
+}
+setTouchMode(matchMedia('(pointer: coarse)').matches || matchMedia('(hover: none)').matches);
+
 function setPointer(e) {
   const w = window.innerWidth, h = window.innerHeight, s = Math.min(w, h) * 0.5 * 0.82;
   input.rx = clamp((e.clientX - w / 2) / s, -1, 1);
   input.ry = clamp((e.clientY - h / 2) / s, -1, 1);
   input.px = e.clientX; input.py = e.clientY;
 }
-function centerPointer() { input.rx = 0; input.ry = 0; input.down = false; input.px = window.innerWidth / 2; input.py = window.innerHeight / 2; }
-window.addEventListener('pointermove', setPointer);
+function setStick(e) {
+  const s = Math.min(window.innerWidth, window.innerHeight) * STICK_R;
+  input.rx = clamp((e.clientX - input.ax) / s, -1, 1);
+  input.ry = clamp((e.clientY - input.ay) / s, -1, 1);
+  input.px = e.clientX; input.py = e.clientY;
+}
+function centerPointer() {
+  input.rx = 0; input.ry = 0; input.px = window.innerWidth / 2; input.py = window.innerHeight / 2;
+  input.mouseDown = false; input.btnDown = false; input.steerId = null; input.stick = false; input.fingers.clear();
+}
+window.addEventListener('pointermove', (e) => {
+  if (isTouchLike(e)) { if (e.pointerId === input.steerId) setStick(e); return; }
+  setTouchMode(false); // マウスが動いたらマウス用の文言に戻す（タッチ対応ノート PC など）
+  setPointer(e);
+});
 window.addEventListener('pointerdown', (e) => {
   if (e.target.closest && e.target.closest('button')) return;
+  if (isTouchLike(e)) {
+    setTouchMode(true);
+    if (input.steerId === null) {
+      input.steerId = e.pointerId; input.ax = e.clientX; input.ay = e.clientY;
+      input.rx = 0; input.ry = 0; input.px = e.clientX; input.py = e.clientY; input.stick = true;
+    } else if (e.pointerId !== input.steerId) input.fingers.add(e.pointerId);
+    audio.start();
+    if (game.state === 'title') startGame();
+    return;
+  }
   if (e.button !== 0) return;
   setPointer(e);
   audio.start();
-  if (game.state === 'title') startGame(); else input.down = true;
+  if (game.state === 'title') startGame(); else input.mouseDown = true;
 });
-window.addEventListener('pointerup', () => { input.down = false; });
-window.addEventListener('pointercancel', () => { input.down = false; });
+function releasePointer(e) {
+  if (isTouchLike(e)) {
+    audio.start(); // iOS はタッチの pointerup をユーザー操作として数えるので、ここで音を確実に起こす
+    if (e.pointerId === input.steerId) {
+      input.steerId = null; input.stick = false; input.rx = 0; input.ry = 0;
+      input.px = window.innerWidth / 2; input.py = window.innerHeight / 2;
+    }
+    input.fingers.delete(e.pointerId);
+    return;
+  }
+  input.mouseDown = false;
+}
+window.addEventListener('pointerup', releasePointer);
+window.addEventListener('pointercancel', releasePointer);
 document.addEventListener('mouseleave', centerPointer);
 window.addEventListener('blur', centerPointer);
 document.addEventListener('visibilitychange', () => audio.setHidden(document.hidden));
@@ -115,6 +168,16 @@ ui.el.mute.addEventListener('click', () => {
   audio.setMuted(!audio.muted);
   ui.el.mute.classList.toggle('muted', audio.muted);
 });
+// 右下の加速ボタン（タッチ端末のみ表示）: 押している間だけ加速
+const holdBoost = (e) => {
+  e.preventDefault();
+  try { ui.el.boost.setPointerCapture(e.pointerId); } catch (_) { /* 対応していない環境では無視 */ }
+  audio.start();
+  input.btnDown = true; ui.el.boost.classList.add('held');
+};
+const dropBoost = () => { input.btnDown = false; ui.el.boost.classList.remove('held'); };
+ui.el.boost.addEventListener('pointerdown', holdBoost);
+for (const t of ['pointerup', 'pointercancel', 'lostpointercapture']) ui.el.boost.addEventListener(t, dropBoost);
 ui.el.again.addEventListener('click', () => {
   if (game.state !== 'result') return;
   game.state = 'restarting';
@@ -347,7 +410,8 @@ function updateCamera(dt, rawDt) {
   camera.lookAt(_look);
   if (debugLook) { _v.set(Math.cos(debugLook.el) * Math.sin(debugLook.az), Math.sin(debugLook.el), Math.cos(debugLook.el) * Math.cos(debugLook.az)); camera.lookAt(_v.add(camera.position)); }
   camera.rotateZ(-player.roll * 0.16 * (1 - b));
-  const fov = 62 + player.boost * 15 + cam.fovKick * 2.5;
+  // 縦持ち（スマホ）は横の視野が狭くなるので、縦の視野角を広げて補う
+  const fov = (camera.aspect < 1 ? 78 : 62) + player.boost * 15 + cam.fovKick * 2.5;
   if (Math.abs(fov - camera.fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
 }
 
@@ -379,7 +443,7 @@ function frame(now) {
   // 開始直後は舵を預かり、1個目のリングをまっすぐくぐらせてから、少しずつ操作を渡す
   game.sinceStart += dt;
   const authority = smoothstep(1.1, 3.0, game.sinceStart);
-  const ctl = human ? { mx: shape(input.rx) * authority, my: shape(input.ry) * authority, boost: input.down } : autopilot(dt, AUTOPILOT && game.state === 'flying');
+  const ctl = human ? { mx: shape(input.rx) * authority, my: shape(input.ry) * authority, boost: boosting() } : autopilot(dt, AUTOPILOT && game.state === 'flying');
   prevPos.copy(player.pos);
   if (dt > 0) {
     updatePlayer(dt, ctl);
@@ -413,7 +477,11 @@ function frame(now) {
   if (bloom) bloom.strength = 0.36 + env.night * 0.34;
   audio.frame(game.dayT, player.speed / BOOST_SPEED, player.boost, splashLevel);
 
-  if (game.state === 'flying') { ui.dial(game.dayT); ui.reticle(input.px, input.py, window.innerWidth, window.innerHeight); }
+  if (game.state === 'flying') {
+    ui.dial(game.dayT);
+    if (input.touch) { ui.stickIdle(!input.stick); ui.reticle(input.px, input.py, window.innerWidth, window.innerHeight, input.ax, input.ay); }
+    else { ui.stickIdle(false); ui.reticle(input.px, input.py, window.innerWidth, window.innerHeight); }
+  }
   updateArrow();
 
   stats.draw = renderer.info.render.calls; stats.tris = renderer.info.render.triangles;
@@ -449,6 +517,7 @@ window.__game = {
   get nextRingDistance() { const r = course.next(); return r ? r.pos.distanceTo(player.pos) : null; },
   get errors() { return errors; },
   get audio() { return audio.level(); },
+  get input() { return { touch: input.touch, rx: input.rx, ry: input.ry, stick: input.stick, boost: boosting(), fingers: input.fingers.size, btn: input.btnDown }; },
   get info() { return { chunks: terrain.chunks.size, landmarks: landmarks.cells.size, colliders: landmarks.colliders.length, draw: stats.draw, tris: stats.tris }; },
   autopilot: AUTOPILOT, timescale: TIMESCALE,
   setDay(t) { game.dayT = clamp(t, 0, 1); },
