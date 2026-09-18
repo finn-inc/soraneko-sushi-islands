@@ -80,9 +80,9 @@ const input = {
   rx: 0, ry: 0, px: window.innerWidth / 2, py: window.innerHeight / 2,
   touch: false,                 // タッチ端末モード（文言・加速ボタン・スティック表示を切り替える）
   steerId: null, ax: 0, ay: 0, stick: false, // 操舵している指と、指を置いた位置
-  mouseDown: false, btnDown: false, lock: false, fingers: new Set(), // 加速: 左ボタン / 右下ボタン（長押し or タップでロック） / 2本目以降の指
+  mouseDown: false, btnDown: false, lock: false, // 加速: 左ボタン / 右下ボタン（長押し or タップでロック）
 };
-const boosting = () => input.mouseDown || input.btnDown || input.lock || input.fingers.size > 0;
+const boosting = () => input.mouseDown || input.btnDown || input.lock;
 const cam = { yaw: player.yaw, pitch: 0, pos: new THREE.Vector3(), blend: 1, side: 0, shake: 0, fovKick: 0, inited: false };
 let hitStop = 0, splashAcc = 0, petalAcc = 0, steamAcc = 0, splashLevel = 0, autoBoostT = 0;
 const errors = [];
@@ -95,7 +95,7 @@ const _look = new THREE.Vector3(), _tp = new THREE.Vector3(), _tl = new THREE.Ve
 
 // ---- 入力 ----
 // マウス: 画面中心からのカーソル位置が進みたい方向、左ボタン長押しで加速
-// タッチ: 指を置いた位置からのドラッグ量が進みたい方向（離すと直進）、2本目の指か右下のボタンで加速
+// タッチ: 指を置いた位置からのドラッグ量が進みたい方向（離すと直進）、右下のボタンで加速（長押し、または短いタップでロック）
 const STICK_R = 0.28; // タッチの最大舵角に達するドラッグ量（画面短辺に対する比）。親指の可動域に収める
 const TOUCH_DZ = 0.1; // タッチのデッドゾーン。親指のぶれを吸収するためマウスより広め
 const isTouchLike = (e) => e.pointerType !== 'mouse';
@@ -103,7 +103,7 @@ function setTouchMode(on) {
   if (input.touch === on) return;
   input.touch = on;
   document.body.classList.toggle('touch', on);
-  if (!on) { input.steerId = null; input.stick = false; input.fingers.clear(); }
+  if (!on) { input.steerId = null; input.stick = false; }
 }
 setTouchMode(matchMedia('(pointer: coarse)').matches || matchMedia('(hover: none)').matches);
 
@@ -121,7 +121,7 @@ function setStick(e) {
 }
 function centerPointer() {
   input.rx = 0; input.ry = 0; input.px = window.innerWidth / 2; input.py = window.innerHeight / 2;
-  input.mouseDown = false; input.btnDown = false; input.lock = false; input.steerId = null; input.stick = false; input.fingers.clear();
+  input.mouseDown = false; input.btnDown = false; input.lock = false; input.steerId = null; input.stick = false;
   ui.el.boost.classList.remove('held');
 }
 window.addEventListener('pointermove', (e) => {
@@ -136,7 +136,7 @@ window.addEventListener('pointerdown', (e) => {
     if (input.steerId === null) {
       input.steerId = e.pointerId; input.ax = e.clientX; input.ay = e.clientY;
       input.rx = 0; input.ry = 0; input.px = e.clientX; input.py = e.clientY; input.stick = true;
-    } else if (e.pointerId !== input.steerId) input.fingers.add(e.pointerId);
+    } // 2本目以降の指は無視する（手のひらの誤タッチで加速しないように）
     audio.start();
     if (game.state === 'title') startGame();
     return;
@@ -153,7 +153,6 @@ function releasePointer(e) {
       input.steerId = null; input.stick = false; input.rx = 0; input.ry = 0;
       input.px = window.innerWidth / 2; input.py = window.innerHeight / 2;
     }
-    input.fingers.delete(e.pointerId);
     return;
   }
   input.mouseDown = false;
@@ -530,7 +529,7 @@ window.__game = {
   get nextRingDistance() { const r = course.next(); return r ? r.pos.distanceTo(player.pos) : null; },
   get errors() { return errors; },
   get audio() { return audio.level(); },
-  get input() { return { touch: input.touch, rx: input.rx, ry: input.ry, stick: input.stick, boost: boosting(), fingers: input.fingers.size, btn: input.btnDown, lock: input.lock }; },
+  get input() { return { touch: input.touch, rx: input.rx, ry: input.ry, stick: input.stick, boost: boosting(), btn: input.btnDown, lock: input.lock }; },
   get info() { return { chunks: terrain.chunks.size, landmarks: landmarks.cells.size, colliders: landmarks.colliders.length, draw: stats.draw, tris: stats.tris }; },
   autopilot: AUTOPILOT, timescale: TIMESCALE,
   setDay(t) { game.dayT = clamp(t, 0, 1); },

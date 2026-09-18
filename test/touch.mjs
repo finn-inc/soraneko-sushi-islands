@@ -73,19 +73,12 @@ async function open(device, qs = '') {
   await page.waitForTimeout(1600);
   const c = await G(page);
   check('levels out after release', Math.abs(c.p.roll) < 0.12, `roll=${c.p.roll.toFixed(2)} pitch=${c.p.pitch.toFixed(2)}`);
-  // 2本目の指 = 加速
+  // 2本目の指は無視される（手のひらの誤タッチで加速しない）
   await touch.start([[1, 120, 500]]);
   await touch.start([[1, 120, 500], [2, 300, 380]]);
   await page.waitForTimeout(150);
   g = await G(page);
-  check('second finger -> boost on, still steering', g.in.fingers === 1 && g.in.boost && g.in.stick, JSON.stringify(g.in));
-  await page.waitForTimeout(1500);
-  const d = await G(page);
-  check('boost speeds up', d.p.speed > c.p.speed + 15, `${c.p.speed.toFixed(1)} -> ${d.p.speed.toFixed(1)}`);
-  await touch.end([[2, 300, 380]]);
-  await page.waitForTimeout(150);
-  g = await G(page);
-  check('lift second finger -> boost off, still steering', !g.in.boost && g.in.stick && g.in.fingers === 0, JSON.stringify(g.in));
+  check('second finger is ignored (no boost, still steering)', !g.in.boost && g.in.stick, JSON.stringify(g.in));
   await touch.end();
   await page.waitForTimeout(150);
   // 右下のボタン = 加速（操舵にはならない）
