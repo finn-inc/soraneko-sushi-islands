@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
 <title>そらねこ寿司諸島</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%231c2a22'/%3E%3Ccircle cx='16' cy='16' r='11' fill='%23fffaf0'/%3E%3Ccircle cx='16' cy='16' r='5.5' fill='%23ff8440'/%3E%3C/svg%3E">
 <style>
@@ -13,7 +13,8 @@
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #ffd9c2; font-family: var(--font); color: #fff;
-    -webkit-user-select: none; user-select: none; -webkit-font-smoothing: antialiased; }
+    -webkit-user-select: none; user-select: none; -webkit-font-smoothing: antialiased;
+    touch-action: none; overscroll-behavior: none; -webkit-touch-callout: none; }
   canvas#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
   #ui { position: fixed; inset: 0; pointer-events: none; }
   .shadowed { text-shadow: 0 2px 14px rgba(30, 20, 50, .35), 0 1px 2px rgba(30, 20, 50, .35); }
@@ -21,7 +22,7 @@
   /* ---- HUD ---- */
   #hud { position: absolute; inset: 0; opacity: 0; transition: opacity .8s ease; }
   #hud.on { opacity: 1; }
-  #count { position: absolute; left: 28px; top: 24px; display: flex; align-items: center; gap: 12px; }
+  #count { position: absolute; left: calc(28px + env(safe-area-inset-left, 0px)); top: 24px; display: flex; align-items: center; gap: 12px; }
   .maki { width: 34px; height: 34px; border-radius: 50%; background: var(--paper); border: 6px solid var(--nori);
     box-shadow: inset 0 0 0 5px var(--paper), inset 0 0 0 12px var(--salmon), 0 3px 12px rgba(20,10,40,.3); }
   #countNum { font-size: 40px; font-weight: 700; letter-spacing: .02em; line-height: 1; display: inline-block; transform-origin: left center; }
@@ -29,7 +30,7 @@
   #countNum.pop { animation: pop .28s cubic-bezier(.2, 1.6, .4, 1); }
   @keyframes pop { 0% { transform: scale(1.45); } 100% { transform: scale(1); } }
 
-  #dial { position: absolute; right: 84px; top: 20px; width: 132px; height: 62px; opacity: .95; }
+  #dial { position: absolute; right: calc(84px + env(safe-area-inset-right, 0px)); top: 20px; width: 132px; height: 62px; opacity: .95; }
   #dial svg { width: 100%; height: 100%; overflow: visible; filter: drop-shadow(0 2px 8px rgba(30, 20, 50, .35)); }
 
   #combo { position: absolute; left: 50%; top: 9%; transform: translateX(-50%); text-align: center; opacity: 0; transition: opacity .5s ease; white-space: nowrap; }
@@ -95,13 +96,38 @@
     opacity: 0; transition: opacity 1.4s ease; white-space: nowrap; }
   #goodnight.on { opacity: 1; }
 
-  #mute { position: absolute; right: 24px; top: 24px; width: 44px; height: 44px; border-radius: 50%; border: 0; cursor: pointer; pointer-events: auto;
+  #mute { position: absolute; right: calc(24px + env(safe-area-inset-right, 0px)); top: 24px; width: 44px; height: 44px; border-radius: 50%; border: 0; cursor: pointer; pointer-events: auto;
     background: rgba(40, 28, 56, .34); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); color: #fff; display: grid; place-items: center; transition: background .2s; }
   #mute:hover { background: rgba(40, 28, 56, .55); }
   #mute svg { width: 22px; height: 22px; }
   #mute .off { display: none; }
   #mute.muted .on { display: none; }
   #mute.muted .off { display: block; }
+
+  /* ---- タッチ端末（スマホ・タブレット）: body.touch で切り替える ---- */
+  body.touch .m, body:not(.touch) .t { display: none; }
+  body.touch #hint { bottom: 22%; }
+  body.touch #reticle.idle { opacity: 0; transition: opacity .25s; }
+  #boost { display: none; position: absolute; right: calc(26px + env(safe-area-inset-right, 0px)); bottom: calc(26px + env(safe-area-inset-bottom, 0px));
+    width: 88px; height: 88px; border-radius: 50%; border: 2px solid rgba(255, 250, 240, .75); background: rgba(40, 28, 56, .36); color: #fff;
+    font-family: var(--font); font-size: 15px; letter-spacing: .22em; text-indent: .22em; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    pointer-events: none; opacity: 0; touch-action: none; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none;
+    transition: opacity .8s ease, transform .12s ease, background .12s ease; }
+  body.touch #boost { display: grid; place-items: center; }
+  #boost.on { pointer-events: auto; opacity: 1; }
+  #boost.held { background: rgba(255, 132, 64, .78); border-color: #fffaf0; transform: scale(.93); }
+  #turn { position: absolute; left: 0; right: 0; bottom: 6.5vh; display: none; font-size: 13px; letter-spacing: .22em; text-indent: .22em; opacity: .85; }
+  @media (orientation: portrait) { body.touch #turn { display: block; } }
+  @media (max-width: 640px) {
+    #hint { font-size: 14px; padding: 10px 18px; letter-spacing: .06em; }
+    #title .start { font-size: 16px; padding: 13px 30px; letter-spacing: .26em; text-indent: .26em; }
+    #title .kicker { font-size: 11px; letter-spacing: .4em; margin-right: -.4em; }
+    #countNum { font-size: 34px; }
+    #combo { top: 15%; } /* 日時計と重ならない高さへ */
+    #title .tag { font-size: 14px; letter-spacing: .12em; padding: 0 14px; }
+    .stats { gap: 30px; }
+    .stat .v { font-size: 40px; }
+  }
 
   #fade { position: absolute; inset: 0; background: #fff6ea; opacity: 0; transition: opacity .55s ease; }
   #fade.on { opacity: 1; }
@@ -129,7 +155,7 @@
   <div id="reticle"><div id="retRing"></div><div id="retLine"></div><div id="retDot"></div></div>
   <div id="arrow"></div>
   <div id="combo" class="shadowed"><div><span id="comboNum">0</span><span class="lab">れんぞく</span></div><div id="cheer"></div></div>
-  <div id="hint" class="shadowed">マウスを向けたほうへ飛ぶ　・　左クリック長押しで加速</div>
+  <div id="hint" class="shadowed"><span class="m">マウスを向けたほうへ飛ぶ　・　左クリック長押しで加速</span><span class="t">なぞった方へ飛ぶ　・　右下を押して加速</span></div>
   <div id="goodnight" class="shadowed">おやすみ、そらねこ</div>
 
   <div id="title" class="shadowed">
@@ -137,7 +163,8 @@
     <h1>そらねこ<span class="s">寿司</span>諸島</h1>
     <div class="rule"></div>
     <p class="tag">ある晴れた一日、ねこは お寿司の海を飛んだ。</p>
-    <div class="start">クリックして とびたつ</div>
+    <div class="start"><span class="m">クリックして とびたつ</span><span class="t">タップして とびたつ</span></div>
+    <div id="turn">よこ向きにすると 見やすいよ</div>
   </div>
 
   <div id="result">
@@ -157,6 +184,7 @@
     <svg class="on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.5L12 18V6L7.5 9.5H4z" fill="currentColor"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6"/><path d="M18 6.5a7.6 7.6 0 0 1 0 11"/></svg>
     <svg class="off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.5L12 18V6L7.5 9.5H4z" fill="currentColor"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
   </button>
+  <button id="boost" aria-label="加速">加速</button>
   <div id="fade"></div>
   <div id="loading">じゅんびちゅう…</div>
 </div>

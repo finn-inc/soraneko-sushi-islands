@@ -21,7 +21,7 @@ export function rankFor(count) {
 export class UI {
   constructor() {
     this.el = {};
-    for (const id of ['hud', 'countNum', 'combo', 'comboNum', 'cheer', 'hint', 'reticle', 'retDot', 'retLine', 'arrow', 'title', 'result', 'rank', 'rankNote', 'resCount', 'resCombo', 'again', 'mute', 'fade', 'loading', 'goodnight', 'dialSun', 'dialProg']) this.el[id] = $(id);
+    for (const id of ['hud', 'countNum', 'combo', 'comboNum', 'cheer', 'hint', 'reticle', 'retRing', 'retDot', 'retLine', 'arrow', 'boost', 'title', 'result', 'rank', 'rankNote', 'resCount', 'resCombo', 'again', 'mute', 'fade', 'loading', 'goodnight', 'dialSun', 'dialProg']) this.el[id] = $(id);
     this.cheerTimer = 0; this.comboShown = 0;
   }
   pop(el) { el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); }
@@ -44,6 +44,7 @@ export class UI {
   showGame(on) {
     this.el.hud.classList.toggle('on', on);
     this.el.reticle.classList.toggle('on', on);
+    this.el.boost.classList.toggle('on', on);
     if (!on) { this.el.combo.classList.remove('on'); this.el.arrow.classList.remove('on'); this.el.hint.classList.remove('on'); }
   }
   hint(on) { this.el.hint.classList.toggle('on', on); }
@@ -74,11 +75,15 @@ export class UI {
     s.setAttribute('fill', t < 0.55 ? '#ffe08a' : t < 0.82 ? '#ff9a5a' : '#dfe6ff');
     this.el.dialProg.setAttribute('stroke-dasharray', `${(t * 100).toFixed(1)} 100`);
   }
-  reticle(px, py, w, h) {
+  // マウス: 中心の輪からカーソルへ線を引く / タッチ: 指を置いた位置 (ax, ay) に輪を出し、指先へ線を引く
+  reticle(px, py, w, h, ax = w / 2, ay = h / 2) {
+    const ox = ax - w / 2, oy = ay - h / 2;
     this.el.retDot.style.transform = `translate(${px}px, ${py}px)`;
-    const dx = px - w / 2, dy = py - h / 2, len = Math.hypot(dx, dy);
-    this.el.retLine.style.transform = `rotate(${Math.atan2(dy, dx)}rad) scaleX(${Math.max(len - 8, 0) / 100})`;
+    this.el.retRing.style.transform = `translate(${ox}px, ${oy}px)`;
+    const dx = px - ax, dy = py - ay, len = Math.hypot(dx, dy);
+    this.el.retLine.style.transform = `translate(${ox}px, ${oy}px) rotate(${Math.atan2(dy, dx)}rad) scaleX(${Math.max(len - 8, 0) / 100})`;
   }
+  stickIdle(idle) { this.el.reticle.classList.toggle('idle', idle); }
   arrow(on, x = 0, y = 0, deg = 0) {
     this.el.arrow.classList.toggle('on', on);
     if (on) this.el.arrow.style.transform = `translate(${x}px, ${y}px) rotate(${deg}deg)`;
