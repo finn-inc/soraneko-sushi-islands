@@ -95,10 +95,24 @@ async function open(device, qs = '') {
   g = await G(page);
   check('boost button hold -> boost on, not steering', g.in.btn && g.in.boost && !g.in.stick, JSON.stringify(g.in));
   await shot(page, 't3-boost-button');
+  await page.waitForTimeout(300); // 長押し扱いになるまで押し続ける
   await touch.end();
   await page.waitForTimeout(150);
   g = await G(page);
-  check('boost button release -> boost off', !g.in.btn && !g.in.boost, JSON.stringify(g.in));
+  check('boost button release (after hold) -> boost off', !g.in.btn && !g.in.boost && !g.in.lock, JSON.stringify(g.in));
+  // 短いタップでロック、もう一度タップで解除
+  const cx = bb.x + bb.width / 2, cy = bb.y + bb.height / 2;
+  await touch.start([[4, cx, cy]]); await page.waitForTimeout(60); await touch.end();
+  await page.waitForTimeout(150);
+  g = await G(page);
+  check('quick tap on boost button -> boost locked on', g.in.lock && g.in.boost && !g.in.btn, JSON.stringify(g.in));
+  await page.waitForTimeout(1200);
+  const e = await G(page);
+  check('locked boost keeps speed up', e.p.speed > 60, `speed=${e.p.speed.toFixed(1)}`);
+  await touch.start([[5, cx, cy]]); await page.waitForTimeout(60); await touch.end();
+  await page.waitForTimeout(150);
+  g = await G(page);
+  check('tap again -> boost unlocked', !g.in.lock && !g.in.boost, JSON.stringify(g.in));
   // 案内文と加速ボタンが重ならない
   const hb = await page.locator('#hint').boundingBox();
   check('hint does not overlap boost button', hb && (hb.y + hb.height <= bb.y || hb.x + hb.width <= bb.x), JSON.stringify({ hint: hb, boost: bb }));
