@@ -80,9 +80,9 @@ const input = {
   rx: 0, ry: 0, px: window.innerWidth / 2, py: window.innerHeight / 2,
   touch: false,                 // タッチ端末モード（文言・加速ボタン・スティック表示を切り替える）
   steerId: null, ax: 0, ay: 0, stick: false, // 操舵している指と、指を置いた位置
-  mouseDown: false, btnDown: false, fingers: new Set(), // 加速: 左ボタン / 右下ボタン / 2本目以降の指
+  mouseDown: false, btnDown: false, lock: false, fingers: new Set(), // 加速: 左ボタン / 右下ボタン（長押し or タップでロック） / 2本目以降の指
 };
-const boosting = () => input.mouseDown || input.btnDown || input.fingers.size > 0;
+const boosting = () => input.mouseDown || input.btnDown || input.lock || input.fingers.size > 0;
 const cam = { yaw: player.yaw, pitch: 0, pos: new THREE.Vector3(), blend: 1, side: 0, shake: 0, fovKick: 0, inited: false };
 let hitStop = 0, splashAcc = 0, petalAcc = 0, steamAcc = 0, splashLevel = 0, autoBoostT = 0;
 const errors = [];
@@ -97,6 +97,7 @@ const _look = new THREE.Vector3(), _tp = new THREE.Vector3(), _tl = new THREE.Ve
 // マウス: 画面中心からのカーソル位置が進みたい方向、左ボタン長押しで加速
 // タッチ: 指を置いた位置からのドラッグ量が進みたい方向（離すと直進）、2本目の指か右下のボタンで加速
 const STICK_R = 0.28; // タッチの最大舵角に達するドラッグ量（画面短辺に対する比）。親指の可動域に収める
+const TOUCH_DZ = 0.1; // タッチのデッドゾーン。親指のぶれを吸収するためマウスより広め
 const isTouchLike = (e) => e.pointerType !== 'mouse';
 function setTouchMode(on) {
   if (input.touch === on) return;
@@ -120,7 +121,8 @@ function setStick(e) {
 }
 function centerPointer() {
   input.rx = 0; input.ry = 0; input.px = window.innerWidth / 2; input.py = window.innerHeight / 2;
-  input.mouseDown = false; input.btnDown = false; input.steerId = null; input.stick = false; input.fingers.clear();
+  input.mouseDown = false; input.btnDown = false; input.lock = false; input.steerId = null; input.stick = false; input.fingers.clear();
+  ui.el.boost.classList.remove('held');
 }
 window.addEventListener('pointermove', (e) => {
   if (isTouchLike(e)) { if (e.pointerId === input.steerId) setStick(e); return; }
@@ -168,14 +170,23 @@ ui.el.mute.addEventListener('click', () => {
   audio.setMuted(!audio.muted);
   ui.el.mute.classList.toggle('muted', audio.muted);
 });
-// 右下の加速ボタン（タッチ端末のみ表示）: 押している間だけ加速
+// 右下の加速ボタン（タッチ端末のみ表示）: 押している間は加速。短くタップすると加速をロックし（片手でも加速し続けられる）、もう一度タップで解除
+const BOOST_TAP_MS = 280;
+let boostPressT = 0, boostWasLocked = false;
+const boostView = () => ui.el.boost.classList.toggle('held', input.btnDown || input.lock);
 const holdBoost = (e) => {
   e.preventDefault();
   try { ui.el.boost.setPointerCapture(e.pointerId); } catch (_) { /* 対応していない環境では無視 */ }
   audio.start();
-  input.btnDown = true; ui.el.boost.classList.add('held');
+  boostPressT = performance.now(); boostWasLocked = input.lock;
+  input.lock = false; input.btnDown = true; boostView();
 };
-const dropBoost = () => { input.btnDown = false; ui.el.boost.classList.remove('held'); };
+const dropBoost = () => {
+  if (!input.btnDown) return; // pointerup と lostpointercapture の二重呼び出しを無視
+  input.btnDown = false;
+  if (!boostWasLocked && performance.now() - boostPressT < BOOST_TAP_MS) input.lock = true;
+  boostView();
+};
 ui.el.boost.addEventListener('pointerdown', holdBoost);
 for (const t of ['pointerup', 'pointercancel', 'lostpointercapture']) ui.el.boost.addEventListener(t, dropBoost);
 ui.el.again.addEventListener('click', () => {
@@ -187,10 +198,10 @@ ui.el.again.addEventListener('click', () => {
 });
 
 const DZ = 0.075;
-function shape(v) {
+function shape(v, dz = DZ) {
   const a = Math.abs(v);
-  if (a < DZ) return 0;
-  return Math.sign(v) * Math.pow((a - DZ) / (1 - DZ), 1.35);
+  if (a < dz) return 0;
+  return Math.sign(v) * Math.pow((a - dz) / (1 - dz), 1.35);
 }
 
 // ---- 進行 ----
@@ -198,6 +209,7 @@ function startGame() {
   game.state = 'flying';
   game.dayT = 0; game.score = 0; game.combo = 0; game.maxCombo = 0; game.flights++;
   game.hintTimer = 9; game.sinceStart = 0;
+  input.lock = false; input.btnDown = false; ui.el.boost.classList.remove('held');
   player.bounce.set(0, 0, 0);
   course.reset(player.pos, player.yaw, 44, 3);
   ui.title(false); ui.result(false); ui.goodnight(false);
@@ -443,7 +455,8 @@ function frame(now) {
   // 開始直後は舵を預かり、1個目のリングをまっすぐくぐらせてから、少しずつ操作を渡す
   game.sinceStart += dt;
   const authority = smoothstep(1.1, 3.0, game.sinceStart);
-  const ctl = human ? { mx: shape(input.rx) * authority, my: shape(input.ry) * authority, boost: boosting() } : autopilot(dt, AUTOPILOT && game.state === 'flying');
+  const dz = input.touch ? TOUCH_DZ : DZ;
+  const ctl = human ? { mx: shape(input.rx, dz) * authority, my: shape(input.ry, dz) * authority, boost: boosting() } : autopilot(dt, AUTOPILOT && game.state === 'flying');
   prevPos.copy(player.pos);
   if (dt > 0) {
     updatePlayer(dt, ctl);
@@ -517,7 +530,7 @@ window.__game = {
   get nextRingDistance() { const r = course.next(); return r ? r.pos.distanceTo(player.pos) : null; },
   get errors() { return errors; },
   get audio() { return audio.level(); },
-  get input() { return { touch: input.touch, rx: input.rx, ry: input.ry, stick: input.stick, boost: boosting(), fingers: input.fingers.size, btn: input.btnDown }; },
+  get input() { return { touch: input.touch, rx: input.rx, ry: input.ry, stick: input.stick, boost: boosting(), fingers: input.fingers.size, btn: input.btnDown, lock: input.lock }; },
   get info() { return { chunks: terrain.chunks.size, landmarks: landmarks.cells.size, colliders: landmarks.colliders.length, draw: stats.draw, tris: stats.tris }; },
   autopilot: AUTOPILOT, timescale: TIMESCALE,
   setDay(t) { game.dayT = clamp(t, 0, 1); },
